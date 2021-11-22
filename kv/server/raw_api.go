@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+
+	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
 
@@ -10,21 +12,31 @@ import (
 
 // RawGet return the corresponding Get response based on RawGetRequest's CF and Key fields
 func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kvrpcpb.RawGetResponse, error) {
-	// Your Code Here (1).
-	return nil, nil
+	wer, err := server.storage.Reader(nil)
+	t := new(kvrpcpb.RawGetResponse)
+	t1, err := wer.GetCF(req.Cf, req.Key)
+	if t1 == nil {
+		t.NotFound = true
+	} else {
+		t.NotFound = false
+	}
+	t.Value = t1
+	return t, err
 }
 
 // RawPut puts the target data into storage and returns the corresponding response
 func (server *Server) RawPut(_ context.Context, req *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
-	// Your Code Here (1).
-	// Hint: Consider using Storage.Modify to store data to be modified
-	return nil, nil
+	req.
+	t1 := make([]storage.Modify, 5)
+	t := new(kvrpcpb.RawPutResponse)
+	err := server.storage.Write(nil, t1)
+	t.Error = err.Error()
+	return t, err
 }
 
 // RawDelete delete the target data from storage and returns the corresponding response
 func (server *Server) RawDelete(_ context.Context, req *kvrpcpb.RawDeleteRequest) (*kvrpcpb.RawDeleteResponse, error) {
-	// Your Code Here (1).
-	// Hint: Consider using Storage.Modify to store data to be deleted
+	
 	return nil, nil
 }
 

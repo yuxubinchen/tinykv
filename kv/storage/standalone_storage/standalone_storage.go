@@ -1,6 +1,7 @@
 package standalone_storage
 
 import (
+	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
@@ -14,26 +15,28 @@ type StandAloneStorage struct {
 	raft   bool
 	en     *engine_util.Engines
 	batch  *engine_util.WriteBatch
-	badgeread DBIterator
+	//badgeread DBIterator
 }
-
+type Standread struct {
+	txn      *badger.Txn
+	db       *badger.DB
+	iterator *engine_util.BadgerIterator
+}
 func NewStandAloneStorage(conf *config.Config) *StandAloneStorage {
 	return &StandAloneStorage{
-		DBPath:    conf.DBPath,
-		raft:      conf.Raft,
-		en:        nil,
-		batch:     new(engine_util.WriteBatch),
-		badgeread: engine_util.DBIterator
+		DBPath: conf.DBPath,
+		raft:   conf.Raft,
+		en:     nil,
+		batch:  new(engine_util.WriteBatch),
+		//badgeread: engine_util.DBIterator
 	}
 }
 func (s *StandAloneStorage) Start() error {
 	s.en.Kv = engine_util.CreateDB(s.DBPath, s.raft)
 	return nil
 }
-
 func (s *StandAloneStorage) Stop() error {
-	// Your Code Here (1).
-	return nil
+	return s.en.Close()
 }
 
 func (s *StandAloneStorage) Reader(ctx *kvrpcpb.Context) (storage.StorageReader, error) {
@@ -41,10 +44,12 @@ func (s *StandAloneStorage) Reader(ctx *kvrpcpb.Context) (storage.StorageReader,
 	if ctx == nil {
 		return nil, nil
 	}
-
-	return nil, nil
+	var sr Standread
+	sr.txn = s.en.Kv.NewTransaction(false)
+	sr.db = s.en.Kv
+	defer sr.txn.Discard()
+	return &sr, nil
 }
-
 func (s *StandAloneStorage) Write(ctx *kvrpcpb.Context, batch []storage.Modify) error {
 
 	for _, pt := range batch {
@@ -58,18 +63,18 @@ func (s *StandAloneStorage) Write(ctx *kvrpcpb.Context, batch []storage.Modify) 
 	err := s.batch.WriteToDB(s.en.Kv)
 	return err
 }
-func (s *storage.StorageReader) GetCF(cf string, key []byte) ([]byte, error) {
-	if key==nil{
-		return nil,nil
+func (s *Standread) GetCF(cf string, key []byte) ([]byte, error) {
+	if key == nil {
+		return nil, nil
 	}
-	return engine_util.GetCF(s.en.Kv, engine_util.CfDefault, pt.Key())
+	return engine_util.GetCF(s.db, engine_util.CfDefault, key)
 }
-func (s *storage.StorageReader) IterCF(cf string) engine_util.DBIterator {
-    txn := s.en.Kv.
-	defaultIter := engine_uengine_util.NewCFIterator 
-	defer txn.Discard()
-	return nil
+func (s *Standread) IterCF(cf string) engine_util.DBIterator {
+	s.iterator = engine_util.NewCFIterator(engine_util.CfDefault, s.txn)
+	return s.iterator
 }
-func (s *storage.StorageReader) Close() {
-   
+func (s *Standread) Close() {
+	defer s.txn.Discard()
+	s.iterator.Close()
+	return
 }
