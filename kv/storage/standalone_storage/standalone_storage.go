@@ -1,6 +1,8 @@
 package standalone_storage
 
 import (
+	"path/filepath"
+
 	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
@@ -11,10 +13,8 @@ import (
 // StandAloneStorage is an implementation of `Storage` for a single-node TinyKV instance. It does not
 // communicate with other nodes and all data is stored locally.
 type StandAloneStorage struct {
-	DBPath string // Directory to store the data in. Should exist and be writable.
-	raft   bool
 	en     *engine_util.Engines
-	batch  *engine_util.WriteBatch
+	config *config.Config
 	//badgeread DBIterator
 }
 type Standread struct {
@@ -22,55 +22,58 @@ type Standread struct {
 	db       *badger.DB
 	iterator *engine_util.BadgerIterator
 }
+
 func NewStandAloneStorage(conf *config.Config) *StandAloneStorage {
+	//t := new(StandAloneStorage)
+	kvpath := filepath.Join(conf.DBPath, "kv")
+	raftpath := filepath.Join(conf.DBPath, "raft")
+	raftdb := engine_util.CreateDB(raftpath, true)
+	kvdb := engine_util.CreateDB(kvpath, false)
+	eng := engine_util.NewEngines(kvdb, raftdb, kvpath, raftpath)
+	//config = conf
 	return &StandAloneStorage{
-		DBPath: conf.DBPath,
-		raft:   conf.Raft,
-		en:     nil,
-		batch:  new(engine_util.WriteBatch),
-		//badgeread: engine_util.DBIterator
+		en:     eng,
+		config: conf,
 	}
 }
 func (s *StandAloneStorage) Start() error {
-	s.en.Kv = engine_util.CreateDB(s.DBPath, s.raft)
+
 	return nil
 }
 func (s *StandAloneStorage) Stop() error {
 	return s.en.Close()
 }
-
 func (s *StandAloneStorage) Reader(ctx *kvrpcpb.Context) (storage.StorageReader, error) {
 
-	if ctx == nil {
-		return nil, nil
-	}
-	var sr Standread
-	sr.txn = s.en.Kv.NewTransaction(false)
-	sr.db = s.en.Kv
-	defer sr.txn.Discard()
-	return &sr, nil
+	txn := s.en.Kv.NewTransaction(false)
+	//sr.db := s.en.Kv
+	return &Standread{
+		txn: txn,
+	}, nil
 }
 func (s *StandAloneStorage) Write(ctx *kvrpcpb.Context, batch []storage.Modify) error {
-
+	bat := new(engine_util.WriteBatch)
 	for _, pt := range batch {
 		switch pt.Data.(type) {
 		case storage.Put:
-			s.batch.SetCF(engine_util.CfDefault, pt.Key(), pt.Value())
+			bat.SetCF(pt.Cf(), pt.Key(), pt.Value())
 		case storage.Delete:
-			s.batch.DeleteCF(engine_util.CfDefault, pt.Key())
+			bat.DeleteCF(pt.Cf(), pt.Key())
 		}
 	}
-	err := s.batch.WriteToDB(s.en.Kv)
+	err := bat.WriteToDB(s.en.Kv)
 	return err
 }
 func (s *Standread) GetCF(cf string, key []byte) ([]byte, error) {
-	if key == nil {
-		return nil, nil
+	a, b := engine_util.GetCFFromTxn(s.txn, cf, key)
+	if b != nil {
+		a = nil
+		b = nil
 	}
-	return engine_util.GetCF(s.db, engine_util.CfDefault, key)
+	return a, b
 }
 func (s *Standread) IterCF(cf string) engine_util.DBIterator {
-	s.iterator = engine_util.NewCFIterator(engine_util.CfDefault, s.txn)
+	s.iterator = engine_util.NewCFIterator(cf, s.txn)
 	return s.iterator
 }
 func (s *Standread) Close() {

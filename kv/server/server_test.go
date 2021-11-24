@@ -49,15 +49,14 @@ func cleanUpTestData(conf *config.Config) error {
 
 func TestRawGet1(t *testing.T) {
 	conf := config.NewTestConfig()
+
 	s := standalone_storage.NewStandAloneStorage(conf)
 	s.Start()
 	server := NewServer(s)
 	defer cleanUpTestData(conf)
 	defer s.Stop()
-
 	cf := engine_util.CfDefault
 	Set(s, cf, []byte{99}, []byte{42})
-
 	req := &kvrpcpb.RawGetRequest{
 		Key: []byte{99},
 		Cf:  cf,
@@ -92,7 +91,6 @@ func TestRawPut1(t *testing.T) {
 	server := NewServer(s)
 	defer cleanUpTestData(conf)
 	defer s.Stop()
-
 	cf := engine_util.CfDefault
 	req := &kvrpcpb.RawPutRequest{
 		Key:   []byte{99},
@@ -101,7 +99,6 @@ func TestRawPut1(t *testing.T) {
 	}
 
 	_, err := server.RawPut(nil, req)
-
 	got, err := Get(s, cf, []byte{99})
 	assert.Nil(t, err)
 	assert.Equal(t, []byte{42}, got)
@@ -170,7 +167,6 @@ func TestRawGetAfterRawDelete1(t *testing.T) {
 
 	_, err := server.RawDelete(nil, delete)
 	assert.Nil(t, err)
-
 	resp, err := server.RawGet(nil, get)
 	assert.Nil(t, err)
 	assert.True(t, resp.NotFound)
@@ -194,7 +190,6 @@ func TestRawDelete1(t *testing.T) {
 
 	_, err := server.RawDelete(nil, req)
 	assert.Nil(t, err)
-
 	val, err := Get(s, cf, []byte{99})
 	assert.Equal(t, nil, err)
 	assert.Equal(t, []byte(nil), val)

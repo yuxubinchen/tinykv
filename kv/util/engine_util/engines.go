@@ -6,7 +6,6 @@ import (
 	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/log"
 )
-
 // Engines keeps references to and data for the engines used by unistore.
 // All engines are badger key/value databases.
 // the Path fields are the filesystem path to where the data is stored.
