@@ -17,6 +17,7 @@ package raft
 import (
 	"errors"
 
+	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
@@ -108,8 +109,8 @@ type Progress struct {
 }
 
 type Raft struct {
-	id uint64
-
+	id   uint64
+	Aws  int
 	Term uint64
 	Vote uint64
 
@@ -164,7 +165,23 @@ func newRaft(c *Config) *Raft {
 	if err := c.validate(); err != nil {
 		panic(err.Error())
 	}
-	// Your Code Here (2A).
+	m1 := make(map[uint64]*Progress)
+	m2 := make(map[uint64]bool)
+	for _, i := range c.peers {
+		m1[i] = nil
+		m2[i] = false
+	}
+	return &Raft{
+		id:    c.ID,
+		State: StateFollower,
+		RaftLog: &RaftLog{
+			storage: c.Storage,
+		},
+		heartbeatTimeout: c.HeartbeatTick,
+		electionTimeout:  c.ElectionTick,
+		votes:            m2,
+		Prs:              m1,
+	}
 	return nil
 }
 
@@ -177,27 +194,71 @@ func (r *Raft) sendAppend(to uint64) bool {
 
 // sendHeartbeat sends a heartbeat RPC to the given peer.
 func (r *Raft) sendHeartbeat(to uint64) {
-	// Your Code Here (2A).
+
 }
 
 // tick advances the internal logical clock by a single tick.
 func (r *Raft) tick() {
-	// Your Code Here (2A).
+	switch r.State {
+	case StateFollower:
+		{
+			r.electionElapsed++
+			if r.electionElapsed >= r.electionTimeout {
+				r.becomeCandidate()
+				r.Step(pb.Message{
+					MsgType: eraftpb.MessageType_MsgHup,
+					From:    r.id,
+					Term:    r.Term,
+				})
+			}
+		}
+	case StateCandidate:
+		{
+			r.electionElapsed++
+			if r.electionElapsed >= r.electionTimeout {
+				r.becomeCandidate()
+				r.Step(pb.Message{
+					MsgType: eraftpb.MessageType_MsgHup,
+					From:    r.id,
+					Term:    r.Term,
+				})
+			}
+		}
+	case StateLeader:
+		{
+			r.heartbeatElapsed++
+			if r.heartbeatElapsed >= r.heartbeatTimeout {
+				r.Step(pb.Message{
+					MsgType: eraftpb.MessageType_MsgBeat,
+					To:      r.id,
+					From:    r.id,
+					Term:    r.Term + 1,
+				})
+			}
+		}
+	}
+
 }
 
 // becomeFollower transform this peer's state to Follower
 func (r *Raft) becomeFollower(term uint64, lead uint64) {
-	// Your Code Here (2A).
+	r.State = StateFollower
+	r.Lead = lead
+	r.Term = term
+	r.Aws = 0
 }
 
 // becomeCandidate transform this peer's state to candidate
 func (r *Raft) becomeCandidate() {
-	// Your Code Here (2A).
+	r.State = StateCandidate
+	r.Term++
+	r.Aws = 0
+	r.votes[r.id] = true
 }
 
 // becomeLeader transform this peer's state to leader
 func (r *Raft) becomeLeader() {
-	// Your Code Here (2A).
+	r.State = StateLeader
 	// NOTE: Leader should propose a noop entry on its term
 }
 
@@ -207,8 +268,198 @@ func (r *Raft) Step(m pb.Message) error {
 	// Your Code Here (2A).
 	switch r.State {
 	case StateFollower:
+		{
+			switch m.MsgType {
+			case eraftpb.MessageType_MsgHup:
+				{
+					r.becomeCandidate()
+					r.Step(pb.Message{
+						MsgType: eraftpb.MessageType_MsgHup,
+						From:    r.id,
+						Term:    r.Term,
+					})
+				}
+			case eraftpb.MessageType_MsgPropose:
+				{
+				}
+			case eraftpb.MessageType_MsgAppend:
+				{
+					if r.Term < m.Term {
+						r.Term = m.Term
+					}
+				}
+			case eraftpb.MessageType_MsgAppendResponse:
+				{
+					if r.Term > m.Term {
+						r.Step(pb.Message{
+							MsgType: eraftpb.MessageType_MsgRequestVoteResponse,
+							From:    r.id,
+							Term:    r.Term,
+							Reject:  false,
+						})
+					} else {
+						r.Step(pb.Message{
+							MsgType: eraftpb.MessageType_MsgRequestVoteResponse,
+							From:    r.id,
+							To:      m.From,
+							Term:    r.Term,
+							Reject:  true,
+						})
+					}
+				}
+			case eraftpb.MessageType_MsgRequestVote:
+				{
+					if r.Term > m.Term {
+						r.msgs = append(r.msgs, pb.Message{
+							MsgType: eraftpb.MessageType_MsgRequestVoteResponse,
+							From:    r.id,
+							Term:    r.Term,
+							Reject:  false,
+						})
+					} else {
+						r.msgs = append(r.msgs, pb.Message{
+							MsgType: eraftpb.MessageType_MsgRequestVoteResponse,
+							From:    r.id,
+							To:      m.From,
+							Term:    r.Term,
+							Reject:  true,
+						})
+					}
+				}
+			case eraftpb.MessageType_MsgSnapshot:
+			case eraftpb.MessageType_MsgHeartbeatResponse:
+			case eraftpb.MessageType_MsgTimeoutNow:
+			}
+		}
 	case StateCandidate:
+		{
+			switch m.MsgType {
+			case eraftpb.MessageType_MsgHup:
+				{
+					r.electionElapsed = 0
+					for j, _ := range r.votes {
+						if j == r.id {
+							continue
+						}
+						r.msgs = append(r.msgs, pb.Message{
+							MsgType: eraftpb.MessageType_MsgRequestVote,
+							To:      j,
+							From:    r.id,
+							Term:    r.Term,
+						})
+					}
+				}
+			case eraftpb.MessageType_MsgPropose:
+			case eraftpb.MessageType_MsgAppend:
+				{
+					if r.Term < m.Term {
+						r.becomeFollower(r.Term, r.Lead)
+						r.Term = m.Term
+					}
+				}
+			case eraftpb.MessageType_MsgAppendResponse:
+			case eraftpb.MessageType_MsgRequestVote:
+				{
+					r.msgs = append(r.msgs, pb.Message{
+						MsgType: eraftpb.MessageType_MsgRequestVoteResponse,
+						From:    r.id,
+						To:      m.From,
+						Term:    r.Term,
+						Reject:  false,
+					})
+				}
+			case eraftpb.MessageType_MsgRequestVoteResponse:
+				{
+					r.votes[m.From] = !m.Reject
+					if m.Reject == true {
+						r.Aws++
+					}
+					if r.Aws >= len(r.votes)/2 {
+						r.becomeLeader()
+					}
+				}
+			case eraftpb.MessageType_MsgSnapshot:
+			case eraftpb.MessageType_MsgHeartbeatResponse:
+			case eraftpb.MessageType_MsgTimeoutNow:
+			}
+		}
 	case StateLeader:
+		{
+			switch m.MsgType {
+			case eraftpb.MessageType_MsgBeat:
+				{
+					for j, _ := range r.votes {
+						if j == r.id {
+							continue
+						}
+						r.Step(pb.Message{
+							MsgType: eraftpb.MessageType_MsgHeartbeat,
+							To:      j,
+							From:    r.id,
+							Term:    r.Term,
+						})
+					}
+				}
+			case eraftpb.MessageType_MsgPropose:
+				{
+					r.msgs = append(r.msgs, pb.Message{
+						MsgType: m.MsgType,
+						To:      m.To,
+						From:    r.id,
+						Term:    r.Term,
+						Entries: m.Entries,
+					})
+				}
+			case eraftpb.MessageType_MsgAppend:
+				{
+					if r.Term < m.Term {
+						r.becomeFollower(r.Term, r.Lead)
+						r.Term = m.Term
+					}
+					r.msgs = append(r.msgs, pb.Message{
+						MsgType: m.MsgType,
+						To:      m.To,
+						From:    r.id,
+						Term:    r.Term,
+						Entries: m.Entries,
+					})
+				}
+			case eraftpb.MessageType_MsgSnapshot:
+			case eraftpb.MessageType_MsgAppendResponse:
+			case eraftpb.MessageType_MsgRequestVote:
+				{
+					if r.Term > m.Term {
+						r.msgs = append(r.msgs, pb.Message{
+							MsgType: eraftpb.MessageType_MsgRequestVoteResponse,
+							From:    r.id,
+							Term:    r.Term,
+							Reject:  false,
+						})
+					} else {
+						r.becomeFollower(r.Term, 0)
+						r.msgs = append(r.msgs, pb.Message{
+							MsgType: eraftpb.MessageType_MsgRequestVoteResponse,
+							From:    r.id,
+							To:      m.From,
+							Term:    r.Term,
+							Reject:  true,
+						})
+					}
+				}
+			case eraftpb.MessageType_MsgHeartbeat:
+				{
+					r.msgs = append(r.msgs, pb.Message{
+						MsgType: eraftpb.MessageType_MsgHeartbeat,
+						To:      m.To,
+						From:    r.id,
+						Term:    r.Term,
+						Entries: nil,
+					})
+				}
+			case eraftpb.MessageType_MsgHeartbeatResponse:
+			case eraftpb.MessageType_MsgTransferLeader:
+			}
+		}
 	}
 	return nil
 }

@@ -186,7 +186,7 @@ every cluster.
 MessageType
 
 Package raft sends and receives message in Protocol Buffer format (defined
-in eraftpb package). Each state (follower, candidate, leader) implements its
+in eraftpb package). Each state (follow er, candidate, leader) implements its
 own 'step' method ('stepFollower', 'stepCandidate', 'stepLeader') when
 advancing with the given eraftpb.Message. Each step is determined by its
 eraftpb.MessageType. Note that every step is checked by one common method

@@ -52,31 +52,31 @@ type MessageType int32
 const (
 	// 'MessageType_MsgHup' is a local message used for election. If an election timeout happened,
 	// the node should pass 'MessageType_MsgHup' to its Step method and start a new election.
-	MessageType_MsgHup MessageType = 0
+	MessageType_MsgHup MessageType = 0 //开始一个新的选举
 	// 'MessageType_MsgBeat' is a local message that signals the leader to send a heartbeat
 	// of the 'MessageType_MsgHeartbeat' type to its followers.
-	MessageType_MsgBeat MessageType = 1
+	MessageType_MsgBeat MessageType = 1 //通知领导者发送心跳
 	// 'MessageType_MsgPropose' is a local message that proposes to append data to the leader's log entries.
-	MessageType_MsgPropose MessageType = 2
+	MessageType_MsgPropose MessageType = 2 //本地消息，附加到领导者的日志条目中。
 	// 'MessageType_MsgAppend' contains log entries to replicate.
-	MessageType_MsgAppend MessageType = 3
+	MessageType_MsgAppend MessageType = 3 //含要复制的日志条目。
 	// 'MessageType_MsgAppendResponse' is response to log replication request('MessageType_MsgAppend').
-	MessageType_MsgAppendResponse MessageType = 4
+	MessageType_MsgAppendResponse MessageType = 4 //对日志复制请求的响应。
 	// 'MessageType_MsgRequestVote' requests votes for election.
-	MessageType_MsgRequestVote MessageType = 5
+	MessageType_MsgRequestVote MessageType = 5 //投票请求
 	// 'MessageType_MsgRequestVoteResponse' contains responses from voting request.
-	MessageType_MsgRequestVoteResponse MessageType = 6
+	MessageType_MsgRequestVoteResponse MessageType = 6 //投票回复
 	// 'MessageType_MsgSnapshot' requests to install a snapshot message.
-	MessageType_MsgSnapshot MessageType = 7
+	MessageType_MsgSnapshot MessageType = 7 //请求下载快照消息。
 	// 'MessageType_MsgHeartbeat' sends heartbeat from leader to its followers.
-	MessageType_MsgHeartbeat MessageType = 8
+	MessageType_MsgHeartbeat MessageType = 8 //从领导者向其追随者发送心跳。
 	// 'MessageType_MsgHeartbeatResponse' is a response to 'MessageType_MsgHeartbeat'.
-	MessageType_MsgHeartbeatResponse MessageType = 9
+	MessageType_MsgHeartbeatResponse MessageType = 9 //对于心跳包应
 	// 'MessageType_MsgTransferLeader' requests the leader to transfer its leadership.
-	MessageType_MsgTransferLeader MessageType = 11
+	MessageType_MsgTransferLeader MessageType = 11 //领导者转移领导权
 	// 'MessageType_MsgTimeoutNow' send from the leader to the leadership transfer target, to let
 	// the transfer target timeout immediately and start a new election.
-	MessageType_MsgTimeoutNow MessageType = 12
+	MessageType_MsgTimeoutNow MessageType = 12 //从领导者发送到领导者转移目标，让转移目标立即超时并开始新的选举。
 )
 
 var MessageType_name = map[int32]string{
