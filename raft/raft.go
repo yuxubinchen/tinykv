@@ -109,11 +109,11 @@ type Progress struct {
 }
 
 type Raft struct {
-	id   uint64
-	Aws  int
-	Term uint64
-	Vote uint64
-
+	id     uint64
+	Aws    int
+	Term   uint64
+	Vote   uint64
+	votebo bool
 	// the log
 	RaftLog *RaftLog
 
@@ -245,6 +245,7 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	r.State = StateFollower
 	r.Lead = lead
 	r.Term = term
+	r.votebo = false
 	r.Aws = 0
 }
 
@@ -295,7 +296,7 @@ func (r *Raft) Step(m pb.Message) error {
 							MsgType: eraftpb.MessageType_MsgRequestVoteResponse,
 							From:    r.id,
 							Term:    r.Term,
-							Reject:  false,
+							Reject:  true,
 						})
 					} else {
 						r.Step(pb.Message{
@@ -303,7 +304,7 @@ func (r *Raft) Step(m pb.Message) error {
 							From:    r.id,
 							To:      m.From,
 							Term:    r.Term,
-							Reject:  true,
+							Reject:  false,
 						})
 					}
 				}
@@ -314,15 +315,21 @@ func (r *Raft) Step(m pb.Message) error {
 							MsgType: eraftpb.MessageType_MsgRequestVoteResponse,
 							From:    r.id,
 							Term:    r.Term,
-							Reject:  false,
+							Reject:  true,
 						})
 					} else {
+						if r.votebo == true {
+							m.Reject = true
+						} else {
+							m.Reject = false
+							r.votebo = true
+						}
 						r.msgs = append(r.msgs, pb.Message{
 							MsgType: eraftpb.MessageType_MsgRequestVoteResponse,
 							From:    r.id,
 							To:      m.From,
 							Term:    r.Term,
-							Reject:  true,
+							Reject:  m.Reject,
 						})
 					}
 				}
@@ -358,6 +365,8 @@ func (r *Raft) Step(m pb.Message) error {
 					if r.Term < m.Term {
 						r.becomeFollower(r.Term, r.Lead)
 						r.Term = m.Term
+					} else if r.Lead == m.From || m.Entries == nil {
+						r.becomeFollower(r.Term, r.Lead)
 					}
 				}
 			case eraftpb.MessageType_MsgAppendResponse:
@@ -368,7 +377,7 @@ func (r *Raft) Step(m pb.Message) error {
 						From:    r.id,
 						To:      m.From,
 						Term:    r.Term,
-						Reject:  false,
+						Reject:  true,
 					})
 				}
 			case eraftpb.MessageType_MsgRequestVoteResponse:
@@ -436,7 +445,7 @@ func (r *Raft) Step(m pb.Message) error {
 							MsgType: eraftpb.MessageType_MsgRequestVoteResponse,
 							From:    r.id,
 							Term:    r.Term,
-							Reject:  false,
+							Reject:  true,
 						})
 					} else {
 						r.becomeFollower(r.Term, 0)
@@ -445,7 +454,7 @@ func (r *Raft) Step(m pb.Message) error {
 							From:    r.id,
 							To:      m.From,
 							Term:    r.Term,
-							Reject:  true,
+							Reject:  false,
 						})
 					}
 				}
