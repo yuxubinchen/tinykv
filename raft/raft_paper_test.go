@@ -231,7 +231,7 @@ func TestFollowerVote2AA(t *testing.T) {
 			{From: 1, To: tt.nvote, Term: 1, MsgType: pb.MessageType_MsgRequestVoteResponse, Reject: tt.wreject},
 		}
 		if !reflect.DeepEqual(msgs, wmsgs) {
-			t.Errorf("#%d: msgs = %v, want %v", i, msgs, wmsgs)
+ 			t.Errorf("#%d: msgs = %v, want %v", i, msgs, wmsgs)
 		}
 	}
 }

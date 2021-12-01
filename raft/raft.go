@@ -337,6 +337,9 @@ func (r *Raft) Step(m pb.Message) error {
 			case eraftpb.MessageType_MsgHup:
 				{
 					r.electionElapsed = 0
+					if len(r.votes) == 1 {
+						r.becomeLeader()
+					}
 					for j, _ := range r.votes {
 						if j == r.id {
 							continue
@@ -371,7 +374,7 @@ func (r *Raft) Step(m pb.Message) error {
 			case eraftpb.MessageType_MsgRequestVoteResponse:
 				{
 					r.votes[m.From] = !m.Reject
-					if m.Reject == true {
+					if r.votes[m.From] == true {
 						r.Aws++
 					}
 					if r.Aws >= len(r.votes)/2 {
