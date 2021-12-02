@@ -16,6 +16,8 @@ package raft
 
 import (
 	"errors"
+	"math/rand"
+	"time"
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
@@ -109,11 +111,10 @@ type Progress struct {
 }
 
 type Raft struct {
-	id     uint64
-	Aws    int
-	Term   uint64
-	Vote   uint64
-	votebo bool
+	id   uint64
+	Aws  int
+	Term uint64
+	Vote uint64
 	// the log
 	RaftLog *RaftLog
 
@@ -133,6 +134,8 @@ type Raft struct {
 	Lead uint64
 
 	// heartbeat interval, should send
+	electionouts     int
+	heartionouts     int
 	heartbeatTimeout int
 	// baseline of election interval
 	electionTimeout int
@@ -181,6 +184,8 @@ func newRaft(c *Config) *Raft {
 		electionTimeout:  c.ElectionTick,
 		votes:            m2,
 		Prs:              m1,
+		electionouts:     c.ElectionTick,
+		heartionouts:     c.HeartbeatTick,
 	}
 	return nil
 }
@@ -245,8 +250,10 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	r.State = StateFollower
 	r.Lead = lead
 	r.Term = term
-	r.votebo = false
-	r.Aws = 0
+	r.Vote = None
+	r.electionElapsed = 0
+	rand.Seed(time.Now().UnixMicro())
+	r.electionTimeout = rand.Intn(r.electionouts) + r.electionouts
 }
 
 // becomeCandidate transform this peer's state to candidate
@@ -254,12 +261,19 @@ func (r *Raft) becomeCandidate() {
 	r.State = StateCandidate
 	r.Term++
 	r.Aws = 0
+	r.Vote = None
+	r.electionElapsed = 0
+	rand.Seed(time.Now().UnixMicro())
+	r.electionTimeout = rand.Intn(r.electionouts) + r.electionouts
 	r.votes[r.id] = true
 }
 
 // becomeLeader transform this peer's state to leader
 func (r *Raft) becomeLeader() {
 	r.State = StateLeader
+	r.heartbeatElapsed = 0
+	rand.Seed(time.Now().UnixMicro())
+	r.heartbeatTimeout = rand.Intn(r.heartionouts) + r.heartionouts
 	// NOTE: Leader should propose a noop entry on its term
 }
 
@@ -288,6 +302,22 @@ func (r *Raft) Step(m pb.Message) error {
 					if r.Term < m.Term {
 						r.Term = m.Term
 					}
+				}
+			case eraftpb.MessageType_MsgHeartbeat:
+				{
+					rjt := true
+					if r.Term < m.Term {
+						r.becomeFollower(m.Term, r.id)
+						rjt = false
+					}
+					r.Step(pb.Message{
+						MsgType: eraftpb.MessageType_MsgHeartbeatResponse,
+						From:    m.To,
+						To:      m.From,
+						Term:    m.Term,
+						Reject:  rjt,
+					})
+
 				}
 			case eraftpb.MessageType_MsgAppendResponse:
 				{
@@ -318,12 +348,13 @@ func (r *Raft) Step(m pb.Message) error {
 							Reject:  true,
 						})
 					} else {
-						if r.votebo == true {
-							m.Reject = true
-						} else {
+						if r.Vote == None || r.Vote == m.From {
 							m.Reject = false
-							r.votebo = true
+							r.Vote = m.From
+						} else {
+							m.Reject = true
 						}
+						r.Term = m.Term
 						r.msgs = append(r.msgs, pb.Message{
 							MsgType: eraftpb.MessageType_MsgRequestVoteResponse,
 							From:    r.id,
@@ -334,7 +365,6 @@ func (r *Raft) Step(m pb.Message) error {
 					}
 				}
 			case eraftpb.MessageType_MsgSnapshot:
-			case eraftpb.MessageType_MsgHeartbeatResponse:
 			case eraftpb.MessageType_MsgTimeoutNow:
 			}
 		}
@@ -343,12 +373,13 @@ func (r *Raft) Step(m pb.Message) error {
 			switch m.MsgType {
 			case eraftpb.MessageType_MsgHup:
 				{
-					r.electionElapsed = 0
+
 					if len(r.votes) == 1 {
 						r.becomeLeader()
 					}
 					for j, _ := range r.votes {
 						if j == r.id {
+							r.Vote = r.id
 							continue
 						}
 						r.msgs = append(r.msgs, pb.Message{
@@ -372,13 +403,25 @@ func (r *Raft) Step(m pb.Message) error {
 			case eraftpb.MessageType_MsgAppendResponse:
 			case eraftpb.MessageType_MsgRequestVote:
 				{
-					r.msgs = append(r.msgs, pb.Message{
-						MsgType: eraftpb.MessageType_MsgRequestVoteResponse,
-						From:    r.id,
-						To:      m.From,
-						Term:    r.Term,
-						Reject:  true,
-					})
+					if r.Term >= m.Term {
+						r.msgs = append(r.msgs, pb.Message{
+							MsgType: eraftpb.MessageType_MsgRequestVoteResponse,
+							From:    r.id,
+							To:      m.From,
+							Term:    r.Term,
+							Reject:  true,
+						})
+					} else {
+						r.becomeFollower(m.Term, 0)
+						r.Vote = m.From
+						r.Step(pb.Message{
+							MsgType: eraftpb.MessageType_MsgRequestVote,
+							From:    m.From,
+							To:      m.To,
+							Term:    m.Term,
+							Reject:  false,
+						})
+					}
 				}
 			case eraftpb.MessageType_MsgRequestVoteResponse:
 				{
@@ -391,7 +434,32 @@ func (r *Raft) Step(m pb.Message) error {
 					}
 				}
 			case eraftpb.MessageType_MsgSnapshot:
-			case eraftpb.MessageType_MsgHeartbeatResponse:
+			case eraftpb.MessageType_MsgHeartbeat:
+				{
+					if r.Term < m.Term {
+						r.becomeFollower(m.Term, m.From)
+						r.Step(pb.Message{
+							MsgType: eraftpb.MessageType_MsgHeartbeat,
+							From:    m.From,
+							To:      m.To,
+							Term:    m.Term,
+							Index:   m.Index,
+							Reject:  false,
+						})
+					} else {
+						rand.Seed(time.Now().UnixMicro())
+						r.electionTimeout = rand.Intn(r.electionouts) + r.electionouts
+						r.votes[r.id] = true
+						r.Step(pb.Message{
+							MsgType: eraftpb.MessageType_MsgHeartbeatResponse,
+							From:    m.To,
+							To:      m.From,
+							Term:    m.Term,
+							Index:   m.Index,
+							Reject:  true,
+						})
+					}
+				}
 			case eraftpb.MessageType_MsgTimeoutNow:
 			}
 		}
@@ -448,7 +516,8 @@ func (r *Raft) Step(m pb.Message) error {
 							Reject:  true,
 						})
 					} else {
-						r.becomeFollower(r.Term, 0)
+						r.becomeFollower(m.Term, 0)
+						r.Vote = m.From
 						r.msgs = append(r.msgs, pb.Message{
 							MsgType: eraftpb.MessageType_MsgRequestVoteResponse,
 							From:    r.id,

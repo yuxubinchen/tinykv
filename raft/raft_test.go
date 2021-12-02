@@ -230,7 +230,7 @@ func TestVoteFromAnyState2AA(t *testing.T) {
 					vt, st, resp.MsgType, vt_resp)
 			}
 			if resp.Reject {
-				t.Errorf("%s,%s: unexpected rejection", vt, st)
+				t.Errorf("%s,%s: unexpected rejection",vt, st)
 			}
 		}
 
@@ -757,7 +757,7 @@ func TestCandidateResetTermMessageType_MsgAppend2AA(t *testing.T) {
 
 // testCandidateResetTerm tests when a candidate receives a
 // MessageType_MsgHeartbeat or MessageType_MsgAppend from leader, "Step" resets the term
-// with leader's and reverts back to follower.
+// with leadeTestCandidateResetTermMessageType_MsgHeartbeat2AAr's and reverts back to follower.
 func testCandidateResetTerm(t *testing.T, mt pb.MessageType) {
 	a := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
 	b := newTestRaft(2, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
@@ -775,7 +775,6 @@ func testCandidateResetTerm(t *testing.T, mt pb.MessageType) {
 	if c.State != StateFollower {
 		t.Errorf("state = %s, want %s", c.State, StateFollower)
 	}
-
 	// isolate 3 and increase term in rest
 	nt.isolate(3)
 
@@ -792,17 +791,13 @@ func testCandidateResetTerm(t *testing.T, mt pb.MessageType) {
 	for c.State != StateCandidate {
 		c.tick()
 	}
-
 	nt.recover()
-
 	// leader sends to isolated candidate
 	// and expects candidate to revert to follower
 	nt.send(pb.Message{From: 1, To: 3, Term: a.Term, MsgType: mt})
-
 	if c.State != StateFollower {
 		t.Errorf("state = %s, want %s", c.State, StateFollower)
 	}
-
 	// follower c term is reset with leader's
 	if a.Term != c.Term {
 		t.Errorf("follower term expected same term as leader's %d, got %d", a.Term, c.Term)
@@ -1604,6 +1599,9 @@ func (nw *network) send(msgs ...pb.Message) {
 	for len(msgs) > 0 {
 		m := msgs[0]
 		p := nw.peers[m.To]
+		// if p==nil{
+		// 	p.Step(m)
+		// }
 		p.Step(m)
 		msgs = append(msgs[1:], nw.filter(p.readMessages())...)
 	}
