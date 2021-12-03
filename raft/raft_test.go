@@ -230,7 +230,7 @@ func TestVoteFromAnyState2AA(t *testing.T) {
 					vt, st, resp.MsgType, vt_resp)
 			}
 			if resp.Reject {
-				t.Errorf("%s,%s: unexpected rejection",vt, st)
+				t.Errorf("%s,%s: unexpected rejection", vt, st)
 			}
 		}
 
@@ -1599,9 +1599,6 @@ func (nw *network) send(msgs ...pb.Message) {
 	for len(msgs) > 0 {
 		m := msgs[0]
 		p := nw.peers[m.To]
-		// if p==nil{
-		// 	p.Step(m)
-		// }
 		p.Step(m)
 		msgs = append(msgs[1:], nw.filter(p.readMessages())...)
 	}

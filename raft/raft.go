@@ -209,7 +209,7 @@ func (r *Raft) tick() {
 		{
 			r.electionElapsed++
 			if r.electionElapsed >= r.electionTimeout {
-				r.becomeCandidate()
+				r.State = StateCandidate
 				r.Step(pb.Message{
 					MsgType: eraftpb.MessageType_MsgHup,
 					From:    r.id,
@@ -221,7 +221,7 @@ func (r *Raft) tick() {
 		{
 			r.electionElapsed++
 			if r.electionElapsed >= r.electionTimeout {
-				r.becomeCandidate()
+				r.State = StateCandidate
 				r.Step(pb.Message{
 					MsgType: eraftpb.MessageType_MsgHup,
 					From:    r.id,
@@ -237,7 +237,7 @@ func (r *Raft) tick() {
 					MsgType: eraftpb.MessageType_MsgBeat,
 					To:      r.id,
 					From:    r.id,
-					Term:    r.Term + 1,
+					Term:    r.Term,
 				})
 			}
 		}
@@ -259,8 +259,8 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 // becomeCandidate transform this peer's state to candidate
 func (r *Raft) becomeCandidate() {
 	r.State = StateCandidate
-	r.Term++
 	r.Aws = 0
+	r.Term++
 	r.Vote = None
 	r.electionElapsed = 0
 	rand.Seed(time.Now().UnixMicro())
@@ -287,7 +287,7 @@ func (r *Raft) Step(m pb.Message) error {
 			switch m.MsgType {
 			case eraftpb.MessageType_MsgHup:
 				{
-					r.becomeCandidate()
+					r.State = StateCandidate
 					r.Step(pb.Message{
 						MsgType: eraftpb.MessageType_MsgHup,
 						From:    r.id,
@@ -306,7 +306,7 @@ func (r *Raft) Step(m pb.Message) error {
 			case eraftpb.MessageType_MsgHeartbeat:
 				{
 					rjt := true
-					if r.Term < m.Term {
+					if r.Term <= m.Term {
 						r.becomeFollower(m.Term, r.id)
 						rjt = false
 					}
@@ -324,7 +324,8 @@ func (r *Raft) Step(m pb.Message) error {
 					if r.Term > m.Term {
 						r.Step(pb.Message{
 							MsgType: eraftpb.MessageType_MsgRequestVoteResponse,
-							From:    r.id,
+							To:      m.To,
+							From:    m.From,
 							Term:    r.Term,
 							Reject:  true,
 						})
@@ -344,6 +345,7 @@ func (r *Raft) Step(m pb.Message) error {
 						r.msgs = append(r.msgs, pb.Message{
 							MsgType: eraftpb.MessageType_MsgRequestVoteResponse,
 							From:    r.id,
+							To:      m.From,
 							Term:    r.Term,
 							Reject:  true,
 						})
@@ -373,7 +375,7 @@ func (r *Raft) Step(m pb.Message) error {
 			switch m.MsgType {
 			case eraftpb.MessageType_MsgHup:
 				{
-
+					r.becomeCandidate()
 					if len(r.votes) == 1 {
 						r.becomeLeader()
 					}
@@ -511,6 +513,7 @@ func (r *Raft) Step(m pb.Message) error {
 					if r.Term > m.Term {
 						r.msgs = append(r.msgs, pb.Message{
 							MsgType: eraftpb.MessageType_MsgRequestVoteResponse,
+							To:      m.From,
 							From:    r.id,
 							Term:    r.Term,
 							Reject:  true,
